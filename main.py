@@ -20,19 +20,29 @@ page = st.sidebar.radio("Go to:", [
 
 WATCH_LIST = ["ENB.TO", "TD.TO", "BCE.TO", "T.TO", "KO", "O", "VZ", "JNJ", "MSFT", "AAPL"]
 
-# --- THE BULK PIPELINE ---
-@st.cache_data(ttl="1d", show_spinner=False)
+# --- AGGRESSIVE DIAGNOSTIC PIPELINE ---
+# We removed the cache here temporarily so it forces a fresh check every time we click the button
 def fetch_market_data(watchlist):
-    # This grabs EVERY stock in one single lightning-fast request
-    tickers = Ticker(watchlist)
-    data = tickers.summary_detail
-    
+    st.info("DEBUG: Knocking on Yahoo's door...")
+    try:
+        tickers = Ticker(watchlist)
+        data = tickers.summary_detail
+        st.info("DEBUG: Yahoo answered the door. Checking data...")
+    except Exception as e:
+        st.error(f"CRITICAL CONNECTION ERROR: {e}")
+        return pd.DataFrame()
+
     results = []
     for ticker in watchlist:
         try:
-            # Check if the data came back successfully for this specific stock
-            if isinstance(data, dict) and ticker in data and isinstance(data[ticker], dict):
+            if isinstance(data, dict) and ticker in data:
                 info = data[ticker]
+                
+                # If Yahoo specifically blocked or couldn't find this stock, it returns a string message
+                if isinstance(info, str):
+                    st.warning(f"⚠️ Yahoo Error for {ticker}: {info}")
+                    continue
+                    
                 price = info.get('previousClose', 0.0)
                 dividend = info.get('dividendRate', 0.0)
                 yield_pct = info.get('dividendYield', 0.0)
@@ -49,8 +59,10 @@ def fetch_market_data(watchlist):
                         "Dividend": safe_div,
                         "Yield %": safe_yield
                     })
-        except Exception:
-            pass # Skip broken tickers quietly
+            else:
+                st.warning(f"⚠️ Missing data for {ticker}")
+        except Exception as e:
+            st.error(f"❌ Error reading data for {ticker}: {e}")
             
     return pd.DataFrame(results)
 
@@ -59,13 +71,12 @@ def fetch_market_data(watchlist):
 # ==========================================
 if page == "📊 Master Screener (Cash Calculator)":
     st.title("📊 Master Dividend Screener")
-    st.write("Enter your cash balance to instantly see what it can buy across top CAD and USD dividend stocks.")
+    st.write("Diagnostic Mode Activated.")
     
     cash = st.number_input("Enter Available Cash ($)", min_value=0.0, value=5000.0, step=500.0)
     
     if st.button("Scan Market"):
-        with st.spinner("Batch processing market data..."):
-            df = fetch_market_data(WATCH_LIST)
+        df = fetch_market_data(WATCH_LIST)
             
         if not df.empty:
             df['Shares to Buy'] = df['Live Price'].apply(lambda x: math.floor(cash / x))
@@ -79,26 +90,12 @@ if page == "📊 Master Screener (Cash Calculator)":
             df['Leftover Cash'] = df['Leftover Cash'].apply(lambda x: f"${x:.2f}")
             
             st.dataframe(df, use_container_width=True)
-            st.success("Batch download successful! Data is locked in the cache.")
+            st.success("Batch download successful!")
         else:
-            st.error("Market data fetch failed. Please try again later.")
+            st.error("Market data fetch failed. Look at the warnings above to see exactly why.")
 
 # --- PLACEHOLDERS ---
 elif page == "🔍 Individual Stock Lookup":
     st.title("🔍 Stock Profile & Live Search")
     st.write("Under construction in Phase 2...")
-elif page == "📅 Dividend History & Payouts":
-    st.title("📅 Dividend Payout History")
-    st.write("Under construction in Phase 2...")
-elif page == "📆 Upcoming Ex-Dividend Calendar":
-    st.title("📆 Upcoming Ex-Dividend Calendar")
-    st.write("Under construction in Phase 3...")
-elif page == "👑 Dividend Aristocrats":
-    st.title("👑 Dividend Aristocrats List")
-    st.write("Under construction in Phase 3...")
-elif page == "📁 Portfolio CSV Import":
-    st.title("📁 Portfolio Tracker")
-    st.write("Under construction in Phase 4...")
-elif page == "📈 DRIP Calculator":
-    st.title("📈 DRIP & Compound Growth")
-    st.write("Under construction in Phase 4...")
+# ... (rest of placeholders)
