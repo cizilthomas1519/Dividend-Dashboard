@@ -1,10 +1,15 @@
 import streamlit as st
-import yfinance as yf
+import requests
 import pandas as pd
 import math
+import os
 
 # Force wide-screen layout
 st.set_page_config(layout="wide", page_title="Dividend Dashboard", page_icon="💰")
+
+# --- THE VAULT KEY ---
+# This securely pulls the secret FMP key we just saved in Render
+FMP_API_KEY = os.environ.get("FMP_API_KEY", "demo")
 
 # --- SIDEBAR NAVIGATION ---
 st.sidebar.title("🧭 Navigation")
@@ -20,35 +25,39 @@ page = st.sidebar.radio("Go to:", [
 
 WATCH_LIST = ["ENB.TO", "TD.TO", "BCE.TO", "T.TO", "KO", "O", "VZ", "JNJ", "MSFT", "AAPL"]
 
-# --- THE TIME CAPSULE ---
-# This saves the data for 1 day ("1d"). It prevents Yahoo from banning us!
+# --- THE API PIPELINE (Bulletproof) ---
 @st.cache_data(ttl="1d", show_spinner=False)
 def fetch_market_data(watchlist):
     results = []
     for ticker in watchlist:
         try:
-            # Notice we removed the "session" disguise completely, as the error requested
-            stock = yf.Ticker(ticker)
+            # We use the FMP API to legally and securely request the data
+            url = f"https://financialmodelingprep.com/api/v3/profile/{ticker}?apikey={FMP_API_KEY}"
+            response = requests.get(url)
             
-            price = stock.fast_info.get('lastPrice')
-            info = stock.info
-            dividend = info.get('dividendRate', 0.0)
-            yield_pct = info.get('dividendYield', 0.0)
-            
-            if price and price > 0:
-                safe_div = dividend if dividend is not None else 0.0
-                safe_yield = (yield_pct * 100) if yield_pct is not None else 0.0
-                currency = "CAD" if ticker.endswith(".TO") else "USD"
+            # If FMP answers us successfully:
+            if response.status_code == 200 and len(response.json()) > 0:
+                data = response.json()[0]
+                price = data.get("price", 0.0)
                 
-                results.append({
-                    "Stock": ticker,
-                    "Exchange": currency,
-                    "Live Price": price,
-                    "Dividend": safe_div,
-                    "Yield %": safe_yield
-                })
+                # FMP labels the annual dividend as 'lastDiv'
+                dividend = data.get("lastDiv", 0.0)
+                
+                if price and price > 0:
+                    safe_div = dividend if dividend is not None else 0.0
+                    # Manually calculate the yield percentage
+                    safe_yield = (safe_div / price) * 100 if safe_div > 0 else 0.0
+                    currency = data.get("currency", "USD")
+                    
+                    results.append({
+                        "Stock": ticker,
+                        "Exchange": currency,
+                        "Live Price": price,
+                        "Dividend": safe_div,
+                        "Yield %": safe_yield
+                    })
         except Exception:
-            pass # If a single stock fails, skip it quietly instead of breaking the app
+            pass # Skip broken tickers quietly
             
     return pd.DataFrame(results)
 
@@ -62,16 +71,14 @@ if page == "📊 Master Screener (Cash Calculator)":
     cash = st.number_input("Enter Available Cash ($)", min_value=0.0, value=5000.0, step=500.0)
     
     if st.button("Scan Market"):
-        with st.spinner("Checking the Time Capsule for data..."):
+        with st.spinner("Connecting to FMP API Data Pipeline..."):
             df = fetch_market_data(WATCH_LIST)
             
         if not df.empty:
-            # Calculate the math based on the user's cash input
             df['Shares to Buy'] = df['Live Price'].apply(lambda x: math.floor(cash / x))
             df['Expected Annual Income'] = df['Shares to Buy'] * df['Dividend']
             df['Leftover Cash'] = cash - (df['Shares to Buy'] * df['Live Price'])
             
-            # Format the numbers to look like real currency
             df['Live Price'] = df['Live Price'].apply(lambda x: f"${x:.2f}")
             df['Dividend'] = df['Dividend'].apply(lambda x: f"${x:.2f}")
             df['Yield %'] = df['Yield %'].apply(lambda x: f"{x:.2f}%")
@@ -79,9 +86,9 @@ if page == "📊 Master Screener (Cash Calculator)":
             df['Leftover Cash'] = df['Leftover Cash'].apply(lambda x: f"${x:.2f}")
             
             st.dataframe(df, use_container_width=True)
-            st.success("Data loaded successfully! It is now locked in the daily cache.")
+            st.success("API connection successful! Data is locked in the cache.")
         else:
-            st.error("Market data is currently unavailable. Please try again later.")
+            st.error("API failed to load data. Double-check your API Key in Render!")
 
 # --- PLACEHOLDERS ---
 elif page == "🔍 Individual Stock Lookup":
