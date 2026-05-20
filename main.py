@@ -2,9 +2,17 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import math
+import requests
 
 # Force wide-screen layout
 st.set_page_config(layout="wide", page_title="Dividend Dashboard", page_icon="💰")
+
+# --- THE DISGUISE ---
+# We create a fake "browser" session to trick Yahoo Finance into thinking we are a human
+session = requests.Session()
+session.headers.update({
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'
+})
 
 # --- SIDEBAR NAVIGATION ---
 st.sidebar.title("🧭 Navigation")
@@ -18,7 +26,6 @@ page = st.sidebar.radio("Go to:", [
     "📈 DRIP Calculator"
 ])
 
-# Global Watchlist for the Screener
 WATCH_LIST = ["ENB.TO", "TD.TO", "BCE.TO", "T.TO", "KO", "O", "VZ", "JNJ", "MSFT", "AAPL"]
 
 # ==========================================
@@ -31,17 +38,15 @@ if page == "📊 Master Screener (Cash Calculator)":
     cash = st.number_input("Enter Available Cash ($)", min_value=0.0, value=5000.0, step=500.0)
     
     if st.button("Scan Market"):
-        st.info("Gathering live data... please wait.")
+        st.info("Bypassing security and gathering live data... please wait.")
         results = []
         
         for ticker in WATCH_LIST:
             try:
-                stock = yf.Ticker(ticker)
+                # We pass the disguised session into yfinance here!
+                stock = yf.Ticker(ticker, session=session)
                 
-                # Using fast_info which is much more stable on cloud servers
                 price = stock.fast_info.get('lastPrice')
-                
-                # Still trying info for dividends, but with a fallback
                 info = stock.info
                 dividend = info.get('dividendRate', 0.0)
                 yield_pct = info.get('dividendYield', 0.0)
@@ -65,7 +70,6 @@ if page == "📊 Master Screener (Cash Calculator)":
                         "Leftover Cash": f"${leftover:.2f}"
                     })
             except Exception as e:
-                # THIS IS THE CRITICAL CHANGE: It will now print the exact error!
                 st.warning(f"Could not load data for {ticker}. Error: {e}")
                 
         if results:
@@ -73,9 +77,9 @@ if page == "📊 Master Screener (Cash Calculator)":
             st.dataframe(df, use_container_width=True)
             st.success("Tip: Click on column headers to sort the rows!")
         else:
-            st.error("All data fetches failed. See the yellow warnings above for the exact reason.")
+            st.error("All data fetches failed.")
 
-# --- PLACEHOLDERS FOR OTHER PAGES ---
+# --- PLACEHOLDERS ---
 elif page == "🔍 Individual Stock Lookup":
     st.title("🔍 Stock Profile & Live Search")
     st.write("Under construction in Phase 2...")
