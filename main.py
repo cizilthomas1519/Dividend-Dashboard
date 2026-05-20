@@ -31,16 +31,18 @@ if page == "📊 Master Screener (Cash Calculator)":
     cash = st.number_input("Enter Available Cash ($)", min_value=0.0, value=5000.0, step=500.0)
     
     if st.button("Scan Market"):
-        st.info("Gathering live data from Yahoo Finance... please wait.")
+        st.info("Gathering live data... please wait.")
         results = []
         
         for ticker in WATCH_LIST:
             try:
                 stock = yf.Ticker(ticker)
-                info = stock.info
                 
-                # Pull live price and dividend data safely
-                price = info.get('currentPrice') or info.get('regularMarketPrice') or info.get('previousClose')
+                # Using fast_info which is much more stable on cloud servers
+                price = stock.fast_info.get('lastPrice')
+                
+                # Still trying info for dividends, but with a fallback
+                info = stock.info
                 dividend = info.get('dividendRate', 0.0)
                 yield_pct = info.get('dividendYield', 0.0)
                 
@@ -62,15 +64,16 @@ if page == "📊 Master Screener (Cash Calculator)":
                         "Expected Annual Income": f"${annual_income:.2f}",
                         "Leftover Cash": f"${leftover:.2f}"
                     })
-            except:
-                pass # Skip broken tickers
+            except Exception as e:
+                # THIS IS THE CRITICAL CHANGE: It will now print the exact error!
+                st.warning(f"Could not load data for {ticker}. Error: {e}")
                 
         if results:
             df = pd.DataFrame(results)
             st.dataframe(df, use_container_width=True)
-            st.success("Tip: Click on column headers (like Expected Annual Income) to sort the rows!")
+            st.success("Tip: Click on column headers to sort the rows!")
         else:
-            st.error("Data fetch failed. Try again.")
+            st.error("All data fetches failed. See the yellow warnings above for the exact reason.")
 
 # --- PLACEHOLDERS FOR OTHER PAGES ---
 elif page == "🔍 Individual Stock Lookup":
