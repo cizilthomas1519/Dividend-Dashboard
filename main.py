@@ -1,15 +1,10 @@
 import streamlit as st
-import requests
+from yahooquery import Ticker
 import pandas as pd
 import math
-import os
 
 # Force wide-screen layout
 st.set_page_config(layout="wide", page_title="Dividend Dashboard", page_icon="💰")
-
-# --- THE VAULT KEY ---
-# This securely pulls the secret FMP key we just saved in Render
-FMP_API_KEY = os.environ.get("FMP_API_KEY", "demo")
 
 # --- SIDEBAR NAVIGATION ---
 st.sidebar.title("🧭 Navigation")
@@ -25,29 +20,27 @@ page = st.sidebar.radio("Go to:", [
 
 WATCH_LIST = ["ENB.TO", "TD.TO", "BCE.TO", "T.TO", "KO", "O", "VZ", "JNJ", "MSFT", "AAPL"]
 
-# --- THE API PIPELINE (Bulletproof) ---
+# --- THE BULK PIPELINE ---
 @st.cache_data(ttl="1d", show_spinner=False)
 def fetch_market_data(watchlist):
+    # This grabs EVERY stock in one single lightning-fast request
+    tickers = Ticker(watchlist)
+    data = tickers.summary_detail
+    
     results = []
     for ticker in watchlist:
         try:
-            # We use the FMP API to legally and securely request the data
-            url = f"https://financialmodelingprep.com/api/v3/profile/{ticker}?apikey={FMP_API_KEY}"
-            response = requests.get(url)
-            
-            # If FMP answers us successfully:
-            if response.status_code == 200 and len(response.json()) > 0:
-                data = response.json()[0]
-                price = data.get("price", 0.0)
-                
-                # FMP labels the annual dividend as 'lastDiv'
-                dividend = data.get("lastDiv", 0.0)
+            # Check if the data came back successfully for this specific stock
+            if isinstance(data, dict) and ticker in data and isinstance(data[ticker], dict):
+                info = data[ticker]
+                price = info.get('previousClose', 0.0)
+                dividend = info.get('dividendRate', 0.0)
+                yield_pct = info.get('dividendYield', 0.0)
                 
                 if price and price > 0:
+                    currency = "CAD" if ticker.endswith(".TO") else "USD"
                     safe_div = dividend if dividend is not None else 0.0
-                    # Manually calculate the yield percentage
-                    safe_yield = (safe_div / price) * 100 if safe_div > 0 else 0.0
-                    currency = data.get("currency", "USD")
+                    safe_yield = (yield_pct * 100) if yield_pct is not None else 0.0
                     
                     results.append({
                         "Stock": ticker,
@@ -71,7 +64,7 @@ if page == "📊 Master Screener (Cash Calculator)":
     cash = st.number_input("Enter Available Cash ($)", min_value=0.0, value=5000.0, step=500.0)
     
     if st.button("Scan Market"):
-        with st.spinner("Connecting to FMP API Data Pipeline..."):
+        with st.spinner("Batch processing market data..."):
             df = fetch_market_data(WATCH_LIST)
             
         if not df.empty:
@@ -86,9 +79,9 @@ if page == "📊 Master Screener (Cash Calculator)":
             df['Leftover Cash'] = df['Leftover Cash'].apply(lambda x: f"${x:.2f}")
             
             st.dataframe(df, use_container_width=True)
-            st.success("API connection successful! Data is locked in the cache.")
+            st.success("Batch download successful! Data is locked in the cache.")
         else:
-            st.error("API failed to load data. Double-check your API Key in Render!")
+            st.error("Market data fetch failed. Please try again later.")
 
 # --- PLACEHOLDERS ---
 elif page == "🔍 Individual Stock Lookup":
